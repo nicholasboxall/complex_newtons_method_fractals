@@ -257,6 +257,40 @@ function renderResults(result) {
     Plotly.react("fractalPlot", traces, plotLayout("Starting points coloured by converged root"), config);
   }
 
+    // Converged roots plot
+  byId("rootsCard").style.display = result.show_roots ? "" : "none";
+
+  if (result.show_roots) {
+    const traces = [];
+
+    result.roots.forEach((root, basin) => {
+      traces.push({
+        x: [root.real],
+        y: [root.imag],
+        type: "scatter",
+        mode: "markers",
+        marker: {
+          size: 13,
+          color: colors[basin % colors.length],
+          line: {
+            color: "#ffffff",
+            width: 1
+          }
+        },
+        name: `Root ${basin + 1}`,
+        hovertemplate:
+          `Root ${basin + 1}<br>Real: %{x:.8f}<br>Imaginary: %{y:.8f}<extra></extra>`
+      });
+    });
+
+    Plotly.react(
+      "rootsPlot",
+      traces,
+      plotLayout("Converged roots"),
+      config
+    );
+  }
+  
   byId("realCard").style.display = result.show_real ? "" : "none";
 
   if (result.show_real) {
