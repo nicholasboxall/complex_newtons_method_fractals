@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complex Function Explorer</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root {
+      --bg: #101827; --header: #17243a; --card: #1e293b;
+      --border: #334155; --accent: #7dd3fc; --text: #f1f5f9;
+      --muted: #b8c5d6; --soft: #cbd5e1;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Arial, sans-serif; line-height: 1.55; }
+    header { background: var(--header); padding: 34px 5%; text-align: center; }
+    header h1 { margin: 0 0 8px; font-size: clamp(26px, 4vw, 38px); }
+    header p { margin: 0; color: var(--muted); }
+    main { max-width: 1250px; margin: auto; padding: 28px 20px 50px; }
+    .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 22px; align-items: start; }
+    .panel, .plot-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    h2, h3 { color: var(--accent); margin-top: 0; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 13px 0 5px; }
+    input[type="text"], input[type="number"] {
+      width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: #101827; color: var(--text); font-size: 14px;
+    }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .checks { margin: 15px 0; display: grid; gap: 9px; color: var(--soft); font-size: 14px; }
+    .checks label { margin: 0; display: flex; align-items: center; gap: 8px; }
+    button { width: 100%; padding: 12px; border: 0; border-radius: 7px; background: var(--accent); color: #102033; font-weight: bold; cursor: pointer; font-size: 15px; }
+    button:disabled { opacity: .55; cursor: wait; }
+    #status { color: var(--muted); font-size: 13px; min-height: 22px; margin-top: 12px; }
+    #error { color: #fca5a5; font-size: 13px; white-space: pre-wrap; }
+    .results { color: var(--soft); font-family: Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+    .plots { display: grid; gap: 18px; }
+    .plot-card { min-width: 0; }
+    .plot { width: 100%; height: 430px; }
+    .hint { color: var(--muted); font-size: 12px; }
+    @media (max-width: 850px) { .layout { grid-template-columns: 1fr; } .plot { height: 350px; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Complex Function Explorer</h1>
+  <p>Explore complex roots and Newton fractals using Newton's method.</p>
+</header>
+<main>
+  <div class="layout">
+    <aside class="panel">
+      <h2>Function settings</h2>
+      <label for="expression">Function f(z)</label>
+      <input id="expression" type="text" value="z**2 + 1" spellcheck="false">
+      <p class="hint">Examples: z**3 + 4 &nbsp;|&nbsp; z**4 - 1 &nbsp;|&nbsp; z**5 + z + 1</p>
+
+      <div class="two">
+        <div><label for="tol">Tolerance</label><input id="tol" type="number" value="0.0001" min="0.000000001" step="any"></div>
+        <div><label for="iterations">Max iterations</label><input id="iterations" type="number" value="100" min="1" max="500"></div>
+      </div>
+      <label>Real-axis range</label>
+      <div class="two">
+        <input id="realMin" type="number" value="-2" step="any" aria-label="Real minimum">
+        <input id="realMax" type="number" value="2" step="any" aria-label="Real maximum">
+      </div>
+      <label>Imaginary-axis range</label>
+      <div class="two">
+        <input id="imagMin" type="number" value="-2" step="any" aria-label="Imaginary minimum">
+        <input id="imagMax" type="number" value="2" step="any" aria-label="Imaginary maximum">
+      </div>
+      <label for="resolution">Points in each direction (total = n²)</label>
+      <input id="resolution" type="number" value="35" min="5" max="150">
+      <div class="checks">
+        <label><input id="showRoots" type="checkbox" checked> Show converged roots</label>
+        <label><input id="showFractal" type="checkbox" checked> Show Newton fractal</label>
+        <label><input id="showReal" type="checkbox"> Show real-axis function</label>
+      </div>
+      <button id="runButton" disabled>Loading Python…</button>
+      <div id="status">Initialising Python runtime…</div>
+      <div id="error"></div>
+      <hr style="border:0;border-top:1px solid var(--border);margin:18px 0">
+      <h3>Unique roots</h3>
+      <div id="roots" class="results">Run an analysis to see the roots.</div>
+    </aside>
+
+    <section class="plots">
+      <div class="plot-card" id="fractalCard">
+        <h2>Newton fractal</h2>
+        <div id="fractalPlot" class="plot"></div>
+      </div>
+      <div class="plot-card" id="rootsCard">
+        <h2>Converged roots</h2>
+        <div id="rootsPlot" class="plot"></div>
+      </div>
+      <div class="plot-card" id="realCard">
+        <h2>Function on the real axis</h2>
+        <div id="realPlot" class="plot"></div>
+        <p id="realNote" class="hint"></p>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+let pyodide;
+let pythonReady = false;
+
+const byId = id => document.getElementById(id);
+const plotLayout = title => ({
+  title: {text: title, font: {color: "#f1f5f9"}},
+  paper_bgcolor: "#1e293b", plot_bgcolor: "#101827",
+  font: {color: "#cbd5e1"},
+  xaxis: {title: "Real", gridcolor: "#334155", zerolinecolor: "#64748b"},
+  yaxis: {title: "Imaginary", gridcolor: "#334155", zerolinecolor: "#64748b", scaleanchor: "x", scaleratio: 1},
+  margin: {l: 60, r: 25, t: 55, b: 55},
+  showlegend: false
+});
+const config = {responsive: true, displaylogo: false};
+
+async function initialise() {
+  try {
+    pyodide = await loadPyodide();
+    await pyodide.loadPackage("numpy");
+    const response = await fetch("newtons_method_imag_function.py");
+    if (!response.ok) throw new Error("Could not load newtons_method_imag_function.py. Check that it is beside index.html.");
+    const source = await response.text();
+    await pyodide.runPythonAsync(source);
+    pythonReady = true;
+    byId("runButton").disabled = false;
+    byId("runButton").textContent = "Run analysis";
+    byId("status").textContent = "Python is ready.";
+  } catch (err) {
+    byId("status").textContent = "Could not initialise Python.";
+    byId("error").textContent = err.message;
+  }
+}
+
+function getNumber(id) {
+  const value = Number(byId(id).value);
+  if (!Number.isFinite(value)) throw new Error("Please enter valid numeric settings.");
+  return value;
+}
+
+async function runAnalysis() {
+  if (!pythonReady) return;
+  const button = byId("runButton");
+  button.disabled = true;
+  button.textContent = "Calculating…";
+  byId("error").textContent = "";
+  byId("status").textContent = "Calculating Newton convergence for each starting point…";
+
+  try {
+    const args = {
+      expression: byId("expression").value,
+      tolerance: getNumber("tol"),
+      max_iterations: getNumber("iterations"),
+      real_min: getNumber("realMin"),
+      real_max: getNumber("realMax"),
+      imag_min: getNumber("imagMin"),
+      imag_max: getNumber("imagMax"),
+      points_per_direction: getNumber("resolution"),
+      show_roots: byId("showRoots").checked,
+      show_fractal: byId("showFractal").checked,
+      show_real: byId("showReal").checked
+    };
+
+    const fn = pyodide.globals.get("run_analysis");
+    let resultText;
+    try {
+      resultText = fn(
+        args.expression, args.tolerance, args.max_iterations,
+        args.real_min, args.real_max, args.imag_min, args.imag_max,
+        args.points_per_direction, args.show_roots, args.show_fractal, args.show_real
+      );
+    } finally {
+      fn.destroy();
+    }
+    const result = JSON.parse(resultText);
+    renderResults(result);
+    const total = args.points_per_direction ** 2;
+    const converged = result.starting_points.real.length;
+    byId("status").textContent = `Completed: ${converged.toLocaleString()} of ${total.toLocaleString()} starting points converged.`;
+  } catch (err) {
+    byId("error").textContent = err.message || String(err);
+    byId("status").textContent = "Analysis could not be completed.";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Run analysis";
+  }
+}
+
+function renderResults(result) {
+  const colors = ["#7dd3fc", "#fca5a5", "#86efac", "#fcd34d", "#c4b5fd", "#fdba74", "#f9a8d4", "#a5b4fc"];
+  byId("roots").innerHTML = result.roots.map((root, i) =>
+    `<div>Root ${i + 1}: ${root.real.toFixed(8)} ${root.imag < 0 ? "−" : "+"} ${Math.abs(root.imag).toFixed(8)}i</div>`
+  ).join("");
+
+  byId("fractalCard").style.display = result.show_fractal ? "" : "none";
+  if (result.show_fractal) {
+    const p = result.starting_points;
+    const traces = [];
+    for (let basin = 0; basin < result.roots.length; basin++) {
+      const xs = [], ys = [];
+      for (let i = 0; i < p.basin.length; i++) {
+        if (p.basin[i] === basin) { xs.push(p.real[i]); ys.push(p.imag[i]); }
+      }
+      traces.push({
+        x: xs, y: ys, type: "scattergl", mode: "markers",
+        marker: {size: 7, color: colors[basin % colors.length], symbol: "square"},
+        name: `Root ${basin + 1}`, hovertemplate: "Initial value: %{x:.4f} + %{y:.4f}i<extra></extra>"
+      });
+    }
+    const roots = result.roots;
+    traces.push({
+      x: roots.map(r => r.real), y: roots.map(r => r.imag),
+      type: "scatter", mode: "markers",
+      marker: {size: 12, color: "#ffffff", line: {color: "#111827", width: 2}, symbol: "x"},
+      name: "Roots", hovertemplate: "Root: %{x:.6f} + %{y:.6f}i<extra></extra>"
+    });
+    Plotly.react("fractalPlot", traces, plotLayout("Starting points coloured by converged root"), config);
+  }
+
+  byId("rootsCard").style.display = result.show_roots ? "" : "none";
+  if (result.show_roots) {
+    const p = result.converged_points;
+    const traces = [];
+    for (let basin = 0; basin < result.roots.length; basin++) {
+      const xs = [], ys = [];
+      for (let i = 0; i < p.basin.length; i++) {
+        if (p.basin[i] === basin) { xs.push(p.real[i]); ys.push(p.imag[i]); }
+      }
+      traces.push({
+        x: xs, y: ys, type: "scattergl", mode: "markers",
+        marker: {size: 6, color: colors[basin % colors.length]},
+        name: `Root ${basin + 1}`
+      });
+    }
+    traces.push({
+      x: result.roots.map(r => r.real), y: result.roots.map(r => r.imag),
+      type: "scatter", mode: "markers",
+      marker: {size: 13, color: "#ffffff", symbol: "x", line: {width: 2, color: "#111827"}},
+      name: "Unique roots"
+    });
+    Plotly.react("rootsPlot", traces, plotLayout("Converged values on the complex plane"), config);
+  }
+
+  byId("realCard").style.display = result.show_real ? "" : "none";
+  if (result.show_real) {
+    if (result.real_curve) {
+      Plotly.react("realPlot", [
+        {x: result.real_curve.x, y: result.real_curve.y, type: "scatter", mode: "lines", line: {color: "#7dd3fc", width: 2}, name: "f(x)"},
+        {x: [result.real_curve.x[0], result.real_curve.x[result.real_curve.x.length - 1]], y: [0, 0], type: "scatter", mode: "lines", line: {color: "#ffffff", dash: "dash"}, name: "y = 0"}
+      ], {
+        ...plotLayout("Real-valued input"), yaxis: {title: "f(x)", gridcolor: "#334155", zerolinecolor: "#64748b", scaleanchor: undefined}
+      }, config);
+      byId("realNote").textContent = result.real_curve.note || "";
+    } else {
+      byId("realNote").textContent = "The real-axis plot could not be generated for this expression.";
+      Plotly.purge("realPlot");
+    }
+  }
+}
+
+byId("runButton").addEventListener("click", runAnalysis);
+initialise();
+</script>
+</body>
+</html>
