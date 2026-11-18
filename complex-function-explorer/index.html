@@ -219,42 +219,66 @@ function renderResults(result) {
     Plotly.react("fractalPlot", traces, plotLayout("Starting points coloured by converged root"), config);
   }
 
-  byId("rootsCard").style.display = result.show_roots ? "" : "none";
-  if (result.show_roots) {
-    const p = result.converged_points;
-    const traces = [];
-    for (let basin = 0; basin < result.roots.length; basin++) {
-      const xs = [], ys = [];
-      for (let i = 0; i < p.basin.length; i++) {
-        if (p.basin[i] === basin) { xs.push(p.real[i]); ys.push(p.imag[i]); }
-      }
-      traces.push({
-        x: xs, y: ys, type: "scattergl", mode: "markers",
-        marker: {size: 6, color: colors[basin % colors.length]},
-        name: `Root ${basin + 1}`
-      });
-    }
-    traces.push({
-      x: result.roots.map(r => r.real), y: result.roots.map(r => r.imag),
-      type: "scatter", mode: "markers",
-      marker: {size: 13, color: "#ffffff", symbol: "x", line: {width: 2, color: "#111827"}},
-      name: "Unique roots"
-    });
-    Plotly.react("rootsPlot", traces, plotLayout("Converged values on the complex plane"), config);
-  }
-
   byId("realCard").style.display = result.show_real ? "" : "none";
+
   if (result.show_real) {
     if (result.real_curve) {
-      Plotly.react("realPlot", [
-        {x: result.real_curve.x, y: result.real_curve.y, type: "scatter", mode: "lines", line: {color: "#7dd3fc", width: 2}, name: "f(x)"},
-        {x: [result.real_curve.x[0], result.real_curve.x[result.real_curve.x.length - 1]], y: [0, 0], type: "scatter", mode: "lines", line: {color: "#ffffff", dash: "dash"}, name: "y = 0"}
-      ], {
-        ...plotLayout("Real-valued input"), yaxis: {title: "f(x)", gridcolor: "#334155", zerolinecolor: "#64748b", scaleanchor: undefined}
+      const curve = result.real_curve;
+
+      const realTraces = [
+        {
+          x: curve.x,
+          y: curve.y,
+          type: "scatter",
+          mode: "lines",
+          line: {color: "#7dd3fc", width: 2},
+          name: "Function f(x)"
+        },
+        {
+          x: curve.x,
+          y: curve.derivative_y,
+          type: "scatter",
+          mode: "lines",
+          line: {color: "#fca5a5", width: 2},
+          name: "Derivative f'(x)"
+        },
+        {
+          x: [curve.x[0], curve.x[curve.x.length - 1]],
+          y: [0, 0],
+          type: "scatter",
+          mode: "lines",
+          line: {color: "#ffffff", dash: "dash", width: 1},
+          name: "y = 0"
+        }
+      ];
+
+      Plotly.react("realPlot", realTraces, {
+        ...plotLayout("Function and derivative on the real axis"),
+        xaxis: {
+          title: "Real input (x)",
+          gridcolor: "#334155",
+          zerolinecolor: "#64748b"
+        },
+        yaxis: {
+          title: "Function value / derivative",
+          gridcolor: "#334155",
+          zerolinecolor: "#64748b"
+        },
+        showlegend: true,
+        legend: {
+          orientation: "h",
+          x: 0,
+          y: -0.22
+        },
+        margin: {l: 65, r: 25, t: 55, b: 85}
       }, config);
-      byId("realNote").textContent = result.real_curve.note || "";
+
+      byId("realNote").textContent = curve.note || "";
+
     } else {
-      byId("realNote").textContent = "The real-axis plot could not be generated for this expression.";
+      byId("realNote").textContent =
+        "The real-axis plot could not be generated for this expression.";
+
       Plotly.purge("realPlot");
     }
   }
