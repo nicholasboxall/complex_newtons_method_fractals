@@ -193,6 +193,44 @@ function renderResults(result) {
   byId("roots").innerHTML = result.roots.map((root, i) =>
     `<div>Root ${i + 1}: ${root.real.toFixed(8)} ${root.imag < 0 ? "−" : "+"} ${Math.abs(root.imag).toFixed(8)}i</div>`
   ).join("");
+    // Display the converged roots plot
+  byId("rootsCard").style.display = result.show_roots ? "" : "none";
+
+  if (result.show_roots) {
+    if (result.roots.length > 0) {
+      const rootTrace = {
+        x: result.roots.map(root => root.real),
+        y: result.roots.map(root => root.imag),
+        type: "scatter",
+        mode: "markers",
+        marker: {
+          size: 12,
+          color: "#7dd3fc",
+          line: {
+            color: "#ffffff",
+            width: 1
+          }
+        },
+        text: result.roots.map((root, i) =>
+          `Root ${i + 1}: ${root.real.toFixed(8)} + ${root.imag.toFixed(8)}i`
+        ),
+        hovertemplate: "%{text}<extra></extra>",
+        name: "Converged roots"
+      };
+
+      Plotly.react(
+        "rootsPlot",
+        [rootTrace],
+        plotLayout("Unique converged roots"),
+        config
+      );
+
+    } else {
+      Plotly.purge("rootsPlot");
+      byId("rootsPlot").innerHTML =
+        "<p style='color:#b8c5d6;text-align:center;padding:40px;'>No roots converged.</p>";
+    }
+  }
 
   byId("fractalCard").style.display = result.show_fractal ? "" : "none";
   if (result.show_fractal) {
